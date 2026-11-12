@@ -4,7 +4,8 @@ import {
   googleProvider,
   db,
   signInWithPopup,
-  signOut
+  signOut,
+  firebaseConfig
 } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
@@ -65,6 +66,15 @@ export default function App() {
 
   // 1. Listen for Firebase Auth state changes
   useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      setErrorNotice({
+        type: 'error',
+        title: 'Firebase 초기화 오류',
+        message: 'Firebase 모듈을 로드하지 못했습니다. 설정 값을 확인해 주세요.'
+      });
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -75,7 +85,7 @@ export default function App() {
 
   // 2. Listen for Firestore real-time updates under users/{userId}/words
   useEffect(() => {
-    if (!user) {
+    if (!user || !db) {
       setWords([]);
       return;
     }
@@ -99,19 +109,20 @@ export default function App() {
       (error) => {
         console.error('Firestore snapshot error:', error);
         setWordsLoading(false);
+        const pid = firebaseConfig?.projectId || 'ssss-52bbd';
         if (error.code === 'permission-denied') {
           setErrorNotice({
             type: 'warning',
             title: 'Firestore 보안 규칙 또는 데이터베이스 설정 필요',
             message: 'Firebase 콘솔에서 Firestore Database를 생성하거나 보안 규칙을 배포해주세요.',
-            url: `https://console.firebase.google.com/project/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/firestore`
+            url: `https://console.firebase.google.com/project/${pid}/firestore`
           });
         } else if (error.message?.includes('Cloud Firestore API') || error.code === 'failed-precondition') {
           setErrorNotice({
             type: 'warning',
             title: 'Cloud Firestore 활성화 필요',
             message: '현재 Firebase 프로젝트에 Firestore가 아직 생성되지 않았습니다. 콘솔에서 Firestore를 활성화해주세요.',
-            url: `https://console.firebase.google.com/project/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/firestore`
+            url: `https://console.firebase.google.com/project/${pid}/firestore`
           });
         } else {
           setErrorNotice({
@@ -128,6 +139,10 @@ export default function App() {
 
   // Google Sign In
   const handleGoogleLogin = async () => {
+    if (!auth || !googleProvider) {
+      alert('Firebase 인증 모듈이 준비되지 않았습니다.');
+      return;
+    }
     try {
       setErrorNotice(null);
       await signInWithPopup(auth, googleProvider);
@@ -136,12 +151,13 @@ export default function App() {
       if (error.code === 'auth/popup-closed-by-user') {
         return;
       }
+      const pid = firebaseConfig?.projectId || 'ssss-52bbd';
       if (error.code === 'auth/operation-not-allowed') {
         setErrorNotice({
           type: 'warning',
           title: 'Google 로그인 제공자 활성화 필요',
           message: 'Firebase 콘솔의 [Authentication] -> [Sign-in method]에서 Google 로그인을 사용 설정해주세요.',
-          url: `https://console.firebase.google.com/project/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/authentication/providers`
+          url: `https://console.firebase.google.com/project/${pid}/authentication/providers`
         });
       } else {
         setErrorNotice({
