@@ -4,6 +4,8 @@ import {
   googleProvider,
   db,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   firebaseConfig
 } from './firebase';
@@ -64,7 +66,53 @@ export default function App() {
   const [editForm, setEditForm] = useState({ word: '', meaning: '', example: '', isMemorized: false });
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // 1. Listen for Firebase Auth state changes
+  // Auth Error Handler with friendly guidance
+  const handleAuthError = (error) => {
+    console.error('Auth error details:', error);
+    const pid = firebaseConfig?.projectId || 'ssss-52bbd';
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
+    if (error.code === 'auth/unauthorized-domain') {
+      setErrorNotice({
+        type: 'warning',
+        title: 'Firebase 승인된 도메인(Authorized Domain) 등록 필요',
+        message: `현재 접속 주소(${currentHost})가 Firebase 프로젝트의 승인된 도메인에 등록되어 있지 않습니다. 아래 링크를 눌러 [설정] -> [승인된 도메인]에 '${currentHost}'을 추가해주세요.`,
+        url: `https://console.firebase.google.com/project/${pid}/authentication/settings`
+      });
+    } else if (
+      error.code === 'auth/operation-not-allowed' ||
+      error.code === 'auth/configuration-not-found' ||
+      error.message?.includes('CONFIGURATION_NOT_FOUND')
+    ) {
+      setErrorNotice({
+        type: 'warning',
+        title: 'Firebase Authentication 및 Google 로그인 활성화 필요',
+        message: 'Firebase 프로젝트에 Authentication이 아직 활성화되지 않았거나 Google 로그인이 사용 설정되지 않았습니다. 아래 링크에서 [시작하기]를 누르고 Google 로그인을 사용 설정(Enable)해주세요.',
+        url: `https://console.firebase.google.com/project/${pid}/authentication/providers`
+      });
+    } else if (error.code === 'auth/popup-blocked') {
+      setErrorNotice({
+        type: 'warning',
+        title: '브라우저 팝업이 차단되었습니다',
+        message: '브라우저 주소창에서 팝업 허용을 활성화하거나, "페이지 이동(리디렉션)으로 로그인" 버튼을 사용해 보세요.'
+      });
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      setErrorNotice({
+        type: 'warning',
+        title: '로그인 창이 자동으로 닫혔습니다',
+        message: `창이 뜨자마자 사라지는 현상은 다음 두 가지가 주요 원인입니다:\n1. Firebase 콘솔에서 Authentication 시작하기 및 Google 제공자가 활성화되지 않았음 (CONFIGURATION_NOT_FOUND)\n2. 현재 접속 도메인(${currentHost})이 Firebase 승인된 도메인에 등록되지 않았음.\n아래 링크를 눌러 Firebase 콘솔 설정을 먼저 완료해 주세요!`,
+        url: `https://console.firebase.google.com/project/${pid}/authentication/providers`
+      });
+    } else {
+      setErrorNotice({
+        type: 'error',
+        title: '로그인 실패 (' + (error.code || 'UNKNOWN') + ')',
+        message: error.message || '인증 중 문제가 발생했습니다.'
+      });
+    }
+  };
+
+  // 1. Listen for Firebase Auth state changes & redirect result
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
@@ -75,10 +123,21 @@ export default function App() {
       });
       return;
     }
+
+    // Process redirect login result if any
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+        }
+      })
+      .catch((error) => {
+        handleAuthError(error);
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
-      setErrorNotice(null);
     });
     return () => unsubscribe();
   }, []);
@@ -137,7 +196,7 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // Google Sign In
+  // Google Sign In (Popup)
   const handleGoogleLogin = async () => {
     if (!auth || !googleProvider) {
       alert('Firebase 인증 모듈이 준비되지 않았습니다.');
@@ -147,25 +206,21 @@ export default function App() {
       setErrorNotice(null);
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      console.error('Login error:', error);
-      if (error.code === 'auth/popup-closed-by-user') {
-        return;
-      }
-      const pid = firebaseConfig?.projectId || 'ssss-52bbd';
-      if (error.code === 'auth/operation-not-allowed') {
-        setErrorNotice({
-          type: 'warning',
-          title: 'Google 로그인 제공자 활성화 필요',
-          message: 'Firebase 콘솔의 [Authentication] -> [Sign-in method]에서 Google 로그인을 사용 설정해주세요.',
-          url: `https://console.firebase.google.com/project/${pid}/authentication/providers`
-        });
-      } else {
-        setErrorNotice({
-          type: 'error',
-          title: '로그인 실패',
-          message: error.message
-        });
-      }
+      handleAuthError(error);
+    }
+  };
+
+  // Google Sign In (Redirect Fallback)
+  const handleGoogleRedirectLogin = async () => {
+    if (!auth || !googleProvider) {
+      alert('Firebase 인증 모듈이 준비되지 않았습니다.');
+      return;
+    }
+    try {
+      setErrorNotice(null);
+      await signInWithRedirect(auth, googleProvider);
+    } catch (error) {
+      handleAuthError(error);
     }
   };
 
@@ -435,7 +490,7 @@ export default function App() {
               단어, 뜻, 예문부터 발음 듣기와 외움 체크까지 안전하게 저장됩니다.
             </p>
 
-            <div className="hero-cta">
+            <div className="hero-cta" style={{ flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
               <button onClick={handleGoogleLogin} className="btn-google-large">
                 <svg width="22" height="22" viewBox="0 0 24 24">
                   <path
@@ -455,7 +510,14 @@ export default function App() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                   />
                 </svg>
-                <span>Google 계정으로 시작하기</span>
+                <span>Google 계정으로 시작하기 (팝업)</span>
+              </button>
+              <button
+                onClick={handleGoogleRedirectLogin}
+                className="btn-outline"
+                style={{ fontSize: '13px', color: '#64748b' }}
+              >
+                팝업 창이 바로 닫힌다면? 페이지 이동(리디렉션)으로 로그인
               </button>
             </div>
 

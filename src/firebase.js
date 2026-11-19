@@ -1,5 +1,12 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 // 환경 변수 (.env)가 우선 적용되며, 없을 경우 기본 프로젝트(ssss-52bbd) 설정값으로 fallback 됩니다.
@@ -29,4 +36,14 @@ try {
   console.error('Firebase initialization error:', error);
 }
 
-export { app, auth, googleProvider, db, signInWithPopup, signOut, firebaseConfig };
+export {
+  app,
+  auth,
+  googleProvider,
+  db,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  firebaseConfig
+};
